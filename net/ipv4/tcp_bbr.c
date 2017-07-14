@@ -182,6 +182,36 @@ static u64 bbr_rate_bytes_per_sec(struct sock *sk, u64 rate, int gain)
 	return rate >> BW_SCALE;
 }
 
+<<<<<<< HEAD
+=======
+/* Convert a BBR bw and gain factor to a pacing rate in bytes per second. */
+static u32 bbr_bw_to_pacing_rate(struct sock *sk, u32 bw, int gain)
+{
+	u64 rate = bw;
+
+	rate = bbr_rate_bytes_per_sec(sk, rate, gain);
+	rate = min_t(u64, rate, sk->sk_max_pacing_rate);
+	return rate;
+}
+
+/* Initialize pacing rate to: high_gain * init_cwnd / RTT. */
+static void bbr_init_pacing_rate_from_rtt(struct sock *sk)
+{
+	struct tcp_sock *tp = tcp_sk(sk);
+	u64 bw;
+	u32 rtt_us;
+
+	if (tp->srtt_us) {		/* any RTT sample yet? */
+		rtt_us = max(tp->srtt_us >> 3, 1U);
+	} else {			 /* no RTT sample yet */
+		rtt_us = USEC_PER_MSEC;	 /* use nominal default RTT */
+	}
+	bw = (u64)tp->snd_cwnd * BW_UNIT;
+	do_div(bw, rtt_us);
+	sk->sk_pacing_rate = bbr_bw_to_pacing_rate(sk, bw, bbr_high_gain);
+}
+
+>>>>>>> 0c0ede36b9e0... tcp_bbr: introduce bbr_init_pacing_rate_from_rtt() helper
 /* Pace using current bw estimate and a gain factor. In order to help drive the
  * network toward lower queues while maintaining high utilization and low
  * latency, the average pacing rate aims to be slightly (~1%) lower than the
@@ -768,7 +798,6 @@ static void bbr_init(struct sock *sk)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct bbr *bbr = inet_csk_ca(sk);
-	u64 bw;
 
 	bbr->prior_cwnd = 0;
 	bbr->tso_segs_goal = 0;	 /* default segs per skb until first ACK */
@@ -784,11 +813,8 @@ static void bbr_init(struct sock *sk)
 
 	minmax_reset(&bbr->bw, bbr->rtt_cnt, 0);  /* init max bw to 0 */
 
-	/* Initialize pacing rate to: high_gain * init_cwnd / RTT. */
-	bw = (u64)tp->snd_cwnd * BW_UNIT;
-	do_div(bw, (tp->srtt_us >> 3) ? : USEC_PER_MSEC);
 	sk->sk_pacing_rate = 0;		/* force an update of sk_pacing_rate */
-	bbr_set_pacing_rate(sk, bw, bbr_high_gain);
+	bbr_init_pacing_rate_from_rtt(sk);
 
 	bbr->restore_cwnd = 0;
 	bbr->round_start = 0;
